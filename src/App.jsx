@@ -1059,6 +1059,187 @@ function RoadmapView({ initiativeCount }) {
     </section>
   );
 }
+
+function IntelligenceView({ initiatives }) {
+  const [selectedId, setSelectedId] = useState(null);
+
+  const assistLayerData = useMemo(() => {
+    const levels = ["Assist", "Augment", "Automate", "Experiment"].map((level) => ({
+      name: level,
+      count: initiatives.filter((init) => init.aiLevel === level).length,
+      initiatives: initiatives.filter((init) => init.aiLevel === level).slice(0, 5)
+    }));
+    return { levels, headline: levels.map((level) => `${level.name}: ${level.count}`).join(" · ") };
+  }, [initiatives]);
+
+  const fragmentedDataData = useMemo(() => {
+    const isolated = initiatives.filter((init) => init.capabilities?.includes("Data Pipeline") && !init.capabilities?.includes("Integration Layer"));
+    const dataAccess = initiatives.filter((init) => init.blocker === "Data Access");
+    const exampleIds = Array.from(new Set([...isolated, ...dataAccess].map((init) => init.id)));
+    return { isolated, dataAccess, examples: exampleIds.map((id) => initiatives.find((init) => init.id === id)).filter(Boolean).slice(0, 6) };
+  }, [initiatives]);
+
+  const toolProliferationData = useMemo(() => {
+    const toolCounts = toSortedEntries(countBy(initiatives.flatMap((init) => init.tools || []), (tool) => tool));
+    const oneOffTools = toolCounts.filter((tool) => tool.count === 1);
+    const tbdInitiatives = initiatives.filter((init) => init.tools?.includes("TBD"));
+    return { toolCounts, oneOffTools, tbdInitiatives };
+  }, [initiatives]);
+
+  const feedbackLoopData = useMemo(() => {
+    const evidenceTypes = new Set(["feedback", "output_sample", "memo"]);
+    const withEvidence = initiatives.filter((init) => init.inputs?.some((input) => evidenceTypes.has(input.type)));
+    const withoutEvidence = initiatives.filter((init) => !init.inputs?.some((input) => evidenceTypes.has(input.type)));
+    const pilotDeployedWithoutEvidence = withoutEvidence.filter((init) => ["Pilot", "Deployed"].includes(init.status));
+    return { withEvidence, withoutEvidence, pilotDeployedWithoutEvidence };
+  }, [initiatives]);
+
+  const grassrootsMomentumData = useMemo(() => {
+    const ownerCounts = toSortedEntries(countBy(initiatives, (init) => init.owner));
+    const concentrationRiskOwners = ownerCounts.filter((owner) => owner.count >= 3);
+    return {
+      contributorCount: ownerCounts.length,
+      departmentCount: new Set(initiatives.map((init) => init.dept)).size,
+      clusterCount: new Set(initiatives.map((init) => init.cluster)).size,
+      inputCount: initiatives.reduce((sum, init) => sum + (init.inputs?.length || 0), 0),
+      ownerCounts,
+      concentrationRiskOwners
+    };
+  }, [initiatives]);
+
+  const clusterDistributionData = useMemo(() => {
+    const counts = CLUSTERS.map((cluster) => ({ name: cluster, count: initiatives.filter((init) => init.cluster === cluster).length }));
+    const sorted = [...counts].sort((a, b) => b.count - a.count);
+    return { counts, highest: sorted.slice(0, 3), underserved: counts.filter((cluster) => cluster.count < 4) };
+  }, [initiatives]);
+
+  const workflowPatternData = useMemo(() => {
+    const patterns = toSortedEntries(countBy(initiatives.filter((init) => init.pattern), (init) => init.pattern)).map((pattern) => {
+      const items = initiatives.filter((init) => init.pattern === pattern.name);
+      return { ...pattern, initiatives: items, departmentCount: new Set(items.map((init) => init.dept)).size };
+    });
+    return { patterns, top: patterns[0] };
+  }, [initiatives]);
+
+  const deploymentRiskMatrix = useMemo(() => {
+    const rows = ["Low", "Medium", "High", "Regulated"];
+    const columns = ["Public", "Internal", "Confidential", "Restricted", "Highly Sensitive"];
+    const matrix = rows.map((riskTier) => ({
+      riskTier,
+      cells: columns.map((sensitivity) => ({
+        sensitivity,
+        count: initiatives.filter((init) => init.riskTier === riskTier && init.sensitivity === sensitivity).length
+      }))
+    }));
+    const redZone = initiatives.filter((init) => ["High", "Regulated"].includes(init.riskTier) && ["Restricted", "Highly Sensitive"].includes(init.sensitivity));
+    return { rows, columns, matrix, redZone, blockedRedZone: redZone.filter((init) => init.status === "Blocked"), unblockedRedZone: redZone.filter((init) => init.status !== "Blocked") };
+  }, [initiatives]);
+
+  const topIntelligenceMetrics = useMemo(() => {
+    const totalPatterns = new Set(initiatives.map((init) => init.pattern).filter(Boolean)).size;
+    const reusablePatternCount = initiatives.filter((init) => init.pattern).length;
+    const dataBlockers = initiatives.filter((init) => init.blocker === "Data Access").length;
+    const highRisk = initiatives.filter((init) => ["High", "Regulated"].includes(init.riskTier)).length;
+    const toolFragmentation = toolProliferationData.oneOffTools.length + toolProliferationData.tbdInitiatives.length;
+    return [
+      { label: "Total patterns detected", value: totalPatterns },
+      { label: "Initiatives with reusable pattern", value: reusablePatternCount },
+      { label: "Data blockers", value: dataBlockers },
+      { label: "High or regulated risk", value: highRisk },
+      { label: "Red zone initiatives", value: deploymentRiskMatrix.redZone.length },
+      { label: "Tool fragmentation signals", value: toolFragmentation }
+    ];
+  }, [deploymentRiskMatrix.redZone.length, initiatives, toolProliferationData]);
+
+  const selectedInitiative = useMemo(() => initiatives.find((init) => init.id === selectedId) || null, [initiatives, selectedId]);
+  const openInitiative = useCallback((id) => setSelectedId(id), []);
+  const closeDrawer = useCallback(() => setSelectedId(null), []);
+
+  return (
+    <section className="portfolio-view intelligence-view">
+      <div className="pulse-grid intelligence-metrics">
+        {topIntelligenceMetrics.map((metric) => <article className="pulse-card" key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong></article>)}
+      </div>
+
+      <div className="intelligence-grid">
+        <PatternCard title="Assist Layer Ceiling" metric={assistLayerData.headline} soWhat="Most initiatives are still assistive or augmenting. The next value step is moving selected low-risk workflows toward governed action." action="Identify candidates that can move from Assist to Augment or from Augment to Automate with human review and confidence thresholds.">
+          <CompactBreakdown items={assistLayerData.levels} />
+          <GroupedInitiatives groups={assistLayerData.levels} onOpen={openInitiative} />
+        </PatternCard>
+
+        <PatternCard title="Fragmented Data / No Shared Context" metric={`${fragmentedDataData.isolated.length} isolated pipelines · ${fragmentedDataData.dataAccess.length} data blockers`} soWhat="Multiple teams are building around data access gaps instead of using a shared access pattern." action="Define a reusable data access request and integration pattern.">
+          <ExampleInitiatives items={fragmentedDataData.examples} onOpen={openInitiative} />
+        </PatternCard>
+
+        <PatternCard title="Tool Proliferation" metric={`${toolProliferationData.toolCounts.length} tools · ${toolProliferationData.oneOffTools.length} one-off`} soWhat="The risk is not tool variety by itself. The risk is every team solving parsing, routing, review, and integration patterns differently." action="Standardize reusable workflow patterns before standardizing tools.">
+          <CompactBreakdown items={toolProliferationData.toolCounts.slice(0, 8)} />
+          <p className="pattern-note">TBD tools: {toolProliferationData.tbdInitiatives.length}</p>
+        </PatternCard>
+
+        <PatternCard title="Missing Feedback Loops" metric={`${feedbackLoopData.pilotDeployedWithoutEvidence.length} pilot/deployed without evidence`} soWhat="Some initiatives are progressing without enough evidence that users are adopting them or that outputs are improving." action="Add lightweight outcome, revision, usage, and user feedback tracking to pilot and deployed initiatives.">
+          <CompactBreakdown items={[{ name: "With evidence", count: feedbackLoopData.withEvidence.length }, { name: "Without evidence", count: feedbackLoopData.withoutEvidence.length }]} />
+          <ExampleInitiatives items={feedbackLoopData.pilotDeployedWithoutEvidence.slice(0, 6)} onOpen={openInitiative} />
+        </PatternCard>
+
+        <PatternCard title="Grassroots Momentum" metric={`${grassrootsMomentumData.contributorCount} contributors · ${grassrootsMomentumData.inputCount} inputs`} soWhat="Participation is broad, but initiative ownership can concentrate around a small number of highly active builders." action="Use the registry to match contributors to open initiatives and reduce single-person bottlenecks.">
+          <CompactBreakdown items={[{ name: "Departments", count: grassrootsMomentumData.departmentCount }, { name: "Clusters", count: grassrootsMomentumData.clusterCount }, { name: "Owners with 3+ initiatives", count: grassrootsMomentumData.concentrationRiskOwners.length }]} />
+          <div className="owner-risk-list">{grassrootsMomentumData.concentrationRiskOwners.slice(0, 6).map((owner) => <span key={owner.name}>{owner.name}: {owner.count}</span>)}</div>
+        </PatternCard>
+
+        <PatternCard title="Portfolio Cluster Distribution" metric={`${clusterDistributionData.highest[0]?.name}: ${clusterDistributionData.highest[0]?.count}`} soWhat="Cluster distribution shows where momentum is forming and where operational areas may be underrepresented." action="Use cluster coverage to guide discovery interviews and balance portfolio visibility.">
+          <CompactBreakdown items={clusterDistributionData.counts} />
+          <p className="pattern-note">Underserved clusters: {clusterDistributionData.underserved.map((cluster) => cluster.name).join(", ") || "None"}</p>
+        </PatternCard>
+
+        <PatternCard title="Reusable Workflow Patterns" metric={`${workflowPatternData.top?.name}: ${workflowPatternData.top?.count}`} soWhat="Repeated patterns are the strongest evidence that the organization should package reusable Materia instead of rebuilding from scratch." action="Formalize the most repeated patterns into templates, reusable components, and implementation guidance.">
+          <CompactBreakdown items={workflowPatternData.patterns.map((pattern) => ({ name: `${pattern.name} (${pattern.departmentCount} depts)`, count: pattern.count }))} />
+          <ExampleInitiatives items={workflowPatternData.top?.initiatives?.slice(0, 6) || []} onOpen={openInitiative} />
+        </PatternCard>
+
+        <PatternCard title="Deployment Risk & Governance" metric={`${deploymentRiskMatrix.redZone.length} red zone initiatives`} soWhat="The riskiest initiatives need deployment review before they become operational systems." action="Add a lightweight deployment checklist and review step for high-risk or sensitive initiatives.">
+          <RiskMatrix data={deploymentRiskMatrix} />
+          <CompactBreakdown items={[{ name: "Blocked red zone", count: deploymentRiskMatrix.blockedRedZone.length }, { name: "Not blocked red zone", count: deploymentRiskMatrix.unblockedRedZone.length }]} />
+          <ExampleInitiatives items={deploymentRiskMatrix.redZone.slice(0, 6)} onOpen={openInitiative} />
+        </PatternCard>
+      </div>
+
+      {selectedInitiative ? <InitiativeDrawer initiative={selectedInitiative} initiatives={initiatives} onClose={closeDrawer} /> : null}
+    </section>
+  );
+}
+
+function PatternCard({ title, metric, soWhat, action, children }) {
+  return (
+    <article className="pattern-card">
+      <div className="pattern-card-header"><h2>{title}</h2><strong>{metric}</strong></div>
+      <p className="so-what">{soWhat}</p>
+      <div className="pattern-card-body">{children}</div>
+      <p className="recommended-action"><span>Recommended action</span>{action}</p>
+    </article>
+  );
+}
+
+function CompactBreakdown({ items }) {
+  const max = Math.max(...items.map((item) => item.count), 1);
+  return <div className="compact-breakdown">{items.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.count}</strong><i style={{ width: `${(item.count / max) * 100}%` }} /></div>)}</div>;
+}
+
+function ExampleInitiatives({ items, onOpen }) {
+  return <div className="example-list">{items.map((item) => <button type="button" key={item.id} onClick={() => onOpen(item.id)}>{item.name}</button>)}</div>;
+}
+
+function GroupedInitiatives({ groups, onOpen }) {
+  return <div className="grouped-initiatives">{groups.map((group) => <details key={group.name}><summary>{group.name} initiatives</summary><ExampleInitiatives items={group.initiatives} onOpen={onOpen} /></details>)}</div>;
+}
+
+function RiskMatrix({ data }) {
+  return (
+    <div className="risk-matrix">
+      <div className="risk-matrix-head"><span />{data.columns.map((column) => <span key={column}>{column}</span>)}</div>
+      {data.matrix.map((row) => <div className="risk-matrix-row" key={row.riskTier}><strong>{row.riskTier}</strong>{row.cells.map((cell) => <span className={["High", "Regulated"].includes(row.riskTier) && ["Restricted", "Highly Sensitive"].includes(cell.sensitivity) ? "red-zone" : ""} key={cell.sensitivity}>{cell.count}</span>)}</div>)}
+    </div>
+  );
+}
 function PlaceholderView({ activeView, initiatives, wielders, pendingFilters }) {
   const copy = viewCopy[activeView];
   const blockedCount = initiatives.filter((init) => init.status === "Blocked").length;
@@ -1175,6 +1356,8 @@ function App() {
         <PrioritizationView initiatives={initiatives} weights={weights} onWeightsChange={setWeights} />
       ) : activeView === "Software Rationalization" ? (
         <SoftwareRationalizationView initiatives={initiatives} />
+      ) : activeView === "Intelligence" ? (
+        <IntelligenceView initiatives={initiatives} />
       ) : activeView === "Roadmap" ? (
         <RoadmapView initiativeCount={initiatives.length} />
       ) : (
@@ -1185,6 +1368,7 @@ function App() {
 }
 
 export default App;
+
 
 
 
