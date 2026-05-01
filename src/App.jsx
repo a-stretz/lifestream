@@ -1,4 +1,4 @@
-﻿import { useCallback, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { CLUSTERS, STATUSES, WEIGHT_DEFAULTS } from "./constants/schema";
 import { INITIAL_INITIATIVES } from "./data/initiatives";
 import { Shell } from "./components/layout/Shell";
@@ -423,6 +423,384 @@ function ExecutiveOverview({ initiatives, wielders, onNavigateWithFilters }) {
   );
 }
 
+
+const aiLevelDescriptions = {
+  Assist: "Supports a person with drafting, analysis, search, or recommendations while humans drive the workflow.",
+  Augment: "Extends an existing workflow with AI-assisted decisions, routing, or structured outputs.",
+  Automate: "Runs a repeatable process with limited manual effort and visible oversight boundaries.",
+  Experiment: "Explores feasibility, data readiness, or operating fit before a production path is clear."
+};
+
+const riskOrder = { Low: 1, Medium: 2, High: 3, Regulated: 4 };
+const statusOrder = { Discovery: 1, "In Progress": 2, Pilot: 3, Deployed: 4, Blocked: 5 };
+
+const defaultExplorerFilters = {
+  search: "",
+  cluster: "",
+  department: "",
+  type: "",
+  status: "",
+  aiLevel: "",
+  riskTier: "",
+  sensitivity: "",
+  blocker: "",
+  pattern: "",
+  sort: "Priority Score"
+};
+
+const sortOptions = ["Priority Score", "Name", "Department", "Status", "Input Count", "Risk Tier", "Latest Signal"];
+
+function getLatestSignal(init) {
+  return init.inputs?.at(-1) || null;
+}
+
+function inputDateValue(input) {
+  if (!input?.date) return 0;
+  const parsed = Date.parse(`${input.date} 2026`);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function uniqueSorted(values) {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function applyPendingFilters(filters, pendingFilters = {}) {
+  const next = { ...filters };
+  if (pendingFilters.status) next.status = pendingFilters.status;
+  if (pendingFilters.cluster) next.cluster = pendingFilters.cluster;
+  if (pendingFilters.capability) next.pattern = pendingFilters.capability;
+  if (pendingFilters.priorityTier) next.priorityTier = pendingFilters.priorityTier;
+  if (pendingFilters.rationalization) next.rationalization = pendingFilters.rationalization;
+  return next;
+}
+
+function Badge({ children, tone = "neutral" }) {
+  return <span className={`badge badge-${tone}`}>{children}</span>;
+}
+
+function FilterSelect({ label, value, options, onChange }) {
+  return (
+    <label className="filter-field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">All</option>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function InitiativeExplorer({ initiatives, pendingFilters }) {
+  const [filters, setFilters] = useState(() => applyPendingFilters(defaultExplorerFilters, pendingFilters));
+  const [selectedId, setSelectedId] = useState(pendingFilters.selectedInitiativeId || null);
+
+  useEffect(() => {
+    setFilters((current) => applyPendingFilters(current, pendingFilters));
+    if (pendingFilters.selectedInitiativeId) setSelectedId(pendingFilters.selectedInitiativeId);
+  }, [pendingFilters]);
+
+  const filterOptions = useMemo(() => ({
+    clusters: uniqueSorted(initiatives.map((init) => init.cluster)),
+    departments: uniqueSorted(initiatives.map((init) => init.dept)),
+    types: uniqueSorted(initiatives.map((init) => init.type)),
+    statuses: STATUSES,
+    aiLevels: uniqueSorted(initiatives.map((init) => init.aiLevel)),
+    riskTiers: uniqueSorted(initiatives.map((init) => init.riskTier)),
+    sensitivities: uniqueSorted(initiatives.map((init) => init.sensitivity)),
+    blockers: uniqueSorted(initiatives.map((init) => init.blocker).filter(Boolean)),
+    patterns: uniqueSorted(initiatives.flatMap((init) => [init.pattern, ...(init.capabilities || [])]))
+  }), [initiatives]);
+
+  const filteredInitiatives = useMemo(() => {
+    const query = filters.search.trim().toLowerCase();
+    return initiatives.filter((init) => {
+      const searchable = [
+        init.name,
+        init.summary,
+        init.dept,
+        init.owner,
+        init.cluster,
+        init.pattern,
+        init.blocker,
+        ...(init.capabilities || []),
+        ...(init.tools || [])
+      ].join(" ").toLowerCase();
+
+      if (query && !searchable.includes(query)) return false;
+      if (filters.cluster && init.cluster !== filters.cluster) return false;
+      if (filters.department && init.dept !== filters.department) return false;
+      if (filters.type && init.type !== filters.type) return false;
+      if (filters.status && init.status !== filters.status) return false;
+      if (filters.aiLevel && init.aiLevel !== filters.aiLevel) return false;
+      if (filters.riskTier && init.riskTier !== filters.riskTier) return false;
+      if (filters.sensitivity && init.sensitivity !== filters.sensitivity) return false;
+      if (filters.blocker && init.blocker !== filters.blocker) return false;
+      if (filters.pattern && init.pattern !== filters.pattern && !init.capabilities?.includes(filters.pattern)) return false;
+      if (filters.priorityTier && init.priorityTier !== filters.priorityTier) return false;
+      if (filters.rationalization && init.rationalization !== filters.rationalization) return false;
+      return true;
+    });
+  }, [filters, initiatives]);
+
+  const sortedInitiatives = useMemo(() => {
+    return [...filteredInitiatives].sort((a, b) => {
+      if (filters.sort === "Name") return a.name.localeCompare(b.name);
+      if (filters.sort === "Department") return a.dept.localeCompare(b.dept) || a.name.localeCompare(b.name);
+      if (filters.sort === "Status") return (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0) || a.name.localeCompare(b.name);
+      if (filters.sort === "Input Count") return (b.inputs?.length || 0) - (a.inputs?.length || 0) || a.name.localeCompare(b.name);
+      if (filters.sort === "Risk Tier") return (riskOrder[b.riskTier] || 0) - (riskOrder[a.riskTier] || 0) || a.name.localeCompare(b.name);
+      if (filters.sort === "Latest Signal") return inputDateValue(getLatestSignal(b)) - inputDateValue(getLatestSignal(a));
+      return Number(b.priorityScore) - Number(a.priorityScore) || a.name.localeCompare(b.name);
+    });
+  }, [filteredInitiatives, filters.sort]);
+
+  const resultsSummary = useMemo(() => {
+    const activeFilterCount = Object.entries(filters).filter(([key, value]) => key !== "sort" && value).length;
+    return { shown: sortedInitiatives.length, activeFilterCount };
+  }, [filters, sortedInitiatives.length]);
+
+  const selectedInitiative = useMemo(() => {
+    return initiatives.find((init) => init.id === selectedId) || null;
+  }, [initiatives, selectedId]);
+
+  const updateFilter = useCallback((key, value) => {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setFilters(defaultExplorerFilters);
+    setSelectedId(null);
+  }, []);
+
+  const openInitiative = useCallback((id) => setSelectedId(id), []);
+  const closeDrawer = useCallback(() => setSelectedId(null), []);
+
+  return (
+    <section className="explorer-view">
+      <div className="explorer-toolbar">
+        <label className="search-field">
+          <span>Search initiatives</span>
+          <input
+            value={filters.search}
+            onChange={(event) => updateFilter("search", event.target.value)}
+            placeholder="Search name, summary, owner, capability, tool, blocker..."
+          />
+        </label>
+        <label className="filter-field sort-field">
+          <span>Sort by</span>
+          <select value={filters.sort} onChange={(event) => updateFilter("sort", event.target.value)}>
+            {sortOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="filter-grid">
+        <FilterSelect label="Cluster" value={filters.cluster} options={filterOptions.clusters} onChange={(value) => updateFilter("cluster", value)} />
+        <FilterSelect label="Department" value={filters.department} options={filterOptions.departments} onChange={(value) => updateFilter("department", value)} />
+        <FilterSelect label="Type" value={filters.type} options={filterOptions.types} onChange={(value) => updateFilter("type", value)} />
+        <FilterSelect label="Status" value={filters.status} options={filterOptions.statuses} onChange={(value) => updateFilter("status", value)} />
+        <FilterSelect label="AI Level" value={filters.aiLevel} options={filterOptions.aiLevels} onChange={(value) => updateFilter("aiLevel", value)} />
+        <FilterSelect label="Risk Tier" value={filters.riskTier} options={filterOptions.riskTiers} onChange={(value) => updateFilter("riskTier", value)} />
+        <FilterSelect label="Sensitivity" value={filters.sensitivity} options={filterOptions.sensitivities} onChange={(value) => updateFilter("sensitivity", value)} />
+        <FilterSelect label="Blocker" value={filters.blocker} options={filterOptions.blockers} onChange={(value) => updateFilter("blocker", value)} />
+        <FilterSelect label="Pattern / Materia" value={filters.pattern} options={filterOptions.patterns} onChange={(value) => updateFilter("pattern", value)} />
+      </div>
+
+      <div className="results-summary">
+        <span>{resultsSummary.shown} initiatives shown</span>
+        <span>{resultsSummary.activeFilterCount} active filters</span>
+        <button type="button" onClick={clearFilters}>Clear filters</button>
+      </div>
+
+      <div className="initiative-list">
+        {sortedInitiatives.map((init) => (
+          <button type="button" className="initiative-row" key={init.id} onClick={() => openInitiative(init.id)}>
+            <div className="initiative-row-main">
+              <strong>{init.name}</strong>
+              <p>{init.summary}</p>
+              <div className="chip-row">
+                <Badge tone="status">Status: {init.status}</Badge>
+                <Badge tone="ai">AI Level: {init.aiLevel}</Badge>
+                <Badge tone="risk">Risk: {init.riskTier}</Badge>
+                <Badge tone="sensitivity">Sensitivity: {init.sensitivity}</Badge>
+                {init.blocker ? <Badge tone="blocker">Blocker: {init.blocker}</Badge> : null}
+              </div>
+            </div>
+            <div className="initiative-meta-grid">
+              <span><em>Owner / Wielder</em><strong>{init.owner}</strong></span>
+              <span><em>Department</em><strong>{init.dept}</strong></span>
+              <span><em>Cluster</em><strong>{init.cluster}</strong></span>
+              <span><em>Type</em><strong>{init.type}</strong></span>
+              <span><em>Score</em><strong>{init.priorityScore}</strong></span>
+              <span><em>Priority tier</em><strong>{init.priorityTier}</strong></span>
+              <span><em>Reusable Materia / Pattern</em><strong>{init.pattern || "None"}</strong></span>
+              <span><em>Input count</em><strong>{init.inputs?.length || 0}</strong></span>
+            </div>
+            <div className="required-capabilities">
+              <em>Required Capabilities</em>
+              <div>{(init.capabilities || []).map((capability) => <span key={capability}>{capability}</span>)}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {selectedInitiative ? (
+        <InitiativeDrawer initiative={selectedInitiative} initiatives={initiatives} onClose={closeDrawer} />
+      ) : null}
+    </section>
+  );
+}
+
+function InitiativeDrawer({ initiative, initiatives, onClose }) {
+  const [expandedInputs, setExpandedInputs] = useState(new Set());
+
+  useEffect(() => {
+    const handleKey = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  const related = useMemo(() => {
+    const samePattern = initiatives
+      .filter((item) => item.id !== initiative.id && initiative.pattern && item.pattern === initiative.pattern)
+      .slice(0, 5);
+    const capabilitySet = new Set(initiative.capabilities || []);
+    const sameCapability = initiatives
+      .filter((item) => item.id !== initiative.id && (item.capabilities || []).some((capability) => capabilitySet.has(capability)))
+      .slice(0, 5);
+    return { samePattern, sameCapability };
+  }, [initiative, initiatives]);
+
+  const drawerFields = useMemo(() => [
+    ["Owner / Wielder", initiative.owner],
+    ["Department", initiative.dept],
+    ["Cluster", initiative.cluster],
+    ["Type", initiative.type],
+    ["Status", initiative.status],
+    ["Purpose / Objective", initiative.purpose],
+    ["AI Level", initiative.aiLevel],
+    ["AI Level Description", aiLevelDescriptions[initiative.aiLevel]],
+    ["Risk Tier", initiative.riskTier],
+    ["Data Sensitivity", initiative.sensitivity],
+    ["Blocker", initiative.blocker || "None"],
+    ["Target Software", initiative.targetSaaS || "None"],
+    ["Rationalization Mode", initiative.rationalization || "None"]
+  ], [initiative]);
+
+  const scoreBars = useMemo(() => [
+    ["Impact", initiative.scores.impact],
+    ["Effort", initiative.scores.effort],
+    ["Risk", initiative.scores.risk],
+    ["Alignment", initiative.scores.alignment]
+  ], [initiative]);
+
+  const toggleInput = useCallback((index) => {
+    setExpandedInputs((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  return (
+    <div className="drawer-backdrop" onMouseDown={onClose}>
+      <aside className="initiative-drawer" aria-label="Initiative detail" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="drawer-header">
+          <div>
+            <p className="eyebrow">Initiative Detail</p>
+            <h2>{initiative.name}</h2>
+            <p>{initiative.summary}</p>
+          </div>
+          <button type="button" className="drawer-close" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="drawer-score-strip">
+          <div><span>Priority score</span><strong>{initiative.priorityScore}</strong></div>
+          <div><span>Priority tier</span><strong>{initiative.priorityTier}</strong></div>
+        </div>
+
+        <section className="drawer-section">
+          <h3>Core Metadata</h3>
+          <div className="drawer-field-grid">
+            {drawerFields.map(([label, value]) => <span key={label}><em>{label}</em><strong>{value}</strong></span>)}
+          </div>
+        </section>
+
+        <section className="drawer-section">
+          <h3>Pattern And Capability Context</h3>
+          <div className="drawer-chip-group">
+            <em>Required Capabilities</em>
+            <div>{(initiative.capabilities || []).map((capability) => <span key={capability}>{capability}</span>)}</div>
+          </div>
+          <div className="drawer-chip-group">
+            <em>Reusable Materia / Pattern</em>
+            <div>{initiative.pattern ? <span>{initiative.pattern}</span> : <span>None</span>}</div>
+          </div>
+          <div className="drawer-chip-group">
+            <em>Tools Used</em>
+            <div>{(initiative.tools || []).map((tool) => <span key={tool}>{tool}</span>)}</div>
+          </div>
+          <RelatedList title="Similar initiatives sharing the same pattern" items={related.samePattern} />
+          <RelatedList title="Similar initiatives sharing at least one capability" items={related.sameCapability} />
+        </section>
+
+        <section className="drawer-section">
+          <h3>Progress And Next Steps</h3>
+          <div className="milestone-list">
+            {(initiative.progressMilestones || []).slice(0, 5).map((milestone) => (
+              <div className={`milestone milestone-${milestone.state}`} key={milestone.label}>
+                <span>{milestone.state}</span>
+                <strong>{milestone.label}</strong>
+                <p>{milestone.detail}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="drawer-section">
+          <h3>Score Breakdown</h3>
+          <div className="score-bars">
+            {scoreBars.map(([label, value]) => (
+              <div className="score-bar" key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+                <i style={{ width: `${value * 10}%` }} />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="drawer-section">
+          <h3>Raw Inputs</h3>
+          <div className="raw-input-list">
+            {(initiative.inputs || []).map((input, index) => {
+              const expanded = expandedInputs.has(index);
+              return (
+                <button type="button" className="raw-input-card" key={`${input.source}-${index}`} onClick={() => toggleInput(index)}>
+                  <span>{input.type} · {input.date}</span>
+                  <strong>{input.source}</strong>
+                  <p>{expanded ? input.text : truncateText(input.text, 180)}</p>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      </aside>
+    </div>
+  );
+}
+
+function RelatedList({ title, items }) {
+  return (
+    <div className="related-list">
+      <em>{title}</em>
+      {items.length ? items.map((item) => <span key={item.id}>{item.name}</span>) : <span>None found</span>}
+    </div>
+  );
+}
 function PlaceholderView({ activeView, initiatives, wielders, pendingFilters }) {
   const copy = viewCopy[activeView];
   const blockedCount = initiatives.filter((init) => init.status === "Blocked").length;
@@ -533,6 +911,8 @@ function App() {
     <Shell activeView={activeView} onNavigate={handleNavigate} header={header}>
       {activeView === "Overview" ? (
         <ExecutiveOverview initiatives={initiatives} wielders={wielders} onNavigateWithFilters={handleNavigateWithFilters} />
+      ) : activeView === "Initiatives" ? (
+        <InitiativeExplorer initiatives={initiatives} pendingFilters={pendingFilters} />
       ) : (
         <PlaceholderView activeView={activeView} initiatives={initiatives} wielders={wielders} pendingFilters={pendingFilters} />
       )}
@@ -541,3 +921,6 @@ function App() {
 }
 
 export default App;
+
+
+
