@@ -1,5 +1,17 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
-import { CLUSTERS, STATUSES, WEIGHT_DEFAULTS } from "./constants/schema";
+import {
+  AI_LEVELS,
+  BLOCKERS,
+  CAPABILITIES,
+  CLUSTERS,
+  DEPARTMENTS,
+  PATTERNS,
+  RISK_TIERS,
+  SENSITIVITIES,
+  STATUSES,
+  TYPES,
+  WEIGHT_DEFAULTS
+} from "./constants/schema";
 import { INITIAL_INITIATIVES } from "./data/initiatives";
 import { Shell } from "./components/layout/Shell";
 import { sanitize } from "./utils/sanitize";
@@ -679,7 +691,7 @@ function InitiativeDrawer({ initiative, initiatives, onClose }) {
     ["Cluster", initiative.cluster],
     ["Type", initiative.type],
     ["Status", initiative.status],
-    ["Purpose / Objective", initiative.purpose],
+    ["Purpose / Objective", initiative.objective || initiative.purpose],
     ["AI Level", initiative.aiLevel],
     ["AI Level Description", aiLevelDescriptions[initiative.aiLevel]],
     ["Risk Tier", initiative.riskTier],
@@ -1010,6 +1022,51 @@ const horizonMeta = {
   "Horizon 3": { title: "Assisted Discovery and Pattern Intelligence", purpose: "Use AI to identify emerging initiatives, reusable Materia, patterns, blockers, and governance risks." }
 };
 
+const inputTypes = [
+  "telegram",
+  "meeting",
+  "email",
+  "process_doc",
+  "builder_log",
+  "feedback",
+  "architecture",
+  "output_sample",
+  "concept",
+  "discovery",
+  "risk",
+  "memo"
+];
+
+const emptyInitiativeForm = {
+  name: "",
+  summary: "",
+  owner: "",
+  dept: DEPARTMENTS[0],
+  type: TYPES[0],
+  status: STATUSES[0],
+  objective: "",
+  aiLevel: AI_LEVELS[0],
+  cluster: CLUSTERS[0],
+  riskTier: RISK_TIERS[0],
+  sensitivity: SENSITIVITIES[1],
+  blocker: "",
+  pattern: "",
+  capabilities: [],
+  tools: "",
+  targetSaaS: "",
+  rationalization: "",
+  scores: { impact: 5, effort: 5, risk: 5, alignment: 5 }
+};
+
+const emptyInputForm = {
+  initiativeId: "",
+  search: "",
+  type: "telegram",
+  source: "",
+  date: "",
+  text: ""
+};
+
 function RoadmapView({ initiativeCount }) {
   const [items, setItems] = useState(baseRoadmapItems);
   const [form, setForm] = useState({ title: "", horizon: "Horizon 1", type: "", description: "", priority: "Medium" });
@@ -1240,6 +1297,229 @@ function RiskMatrix({ data }) {
     </div>
   );
 }
+
+function AddInitiativeView({ initiatives, onAddInitiative }) {
+  const [form, setForm] = useState(emptyInitiativeForm);
+  const [status, setStatus] = useState({ type: "", message: "" });
+
+  const formOptions = useMemo(() => ({
+    departments: uniqueSorted([...DEPARTMENTS, ...initiatives.map((init) => init.dept)]),
+    types: uniqueSorted([...TYPES, ...initiatives.map((init) => init.type)]),
+    statuses: STATUSES,
+    aiLevels: AI_LEVELS,
+    clusters: CLUSTERS,
+    riskTiers: RISK_TIERS,
+    sensitivities: SENSITIVITIES,
+    blockers: BLOCKERS,
+    patterns: uniqueSorted([...PATTERNS, ...initiatives.map((init) => init.pattern).filter(Boolean)]),
+    capabilities: CAPABILITIES
+  }), [initiatives]);
+
+  const updateField = useCallback((key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setStatus({ type: "", message: "" });
+  }, []);
+
+  const updateScore = useCallback((key, value) => {
+    setForm((current) => ({ ...current, scores: { ...current.scores, [key]: Number(value) } }));
+    setStatus({ type: "", message: "" });
+  }, []);
+
+  const toggleCapability = useCallback((capability) => {
+    setForm((current) => {
+      const selected = new Set(current.capabilities);
+      if (selected.has(capability)) selected.delete(capability);
+      else selected.add(capability);
+      return { ...current, capabilities: Array.from(selected) };
+    });
+    setStatus({ type: "", message: "" });
+  }, []);
+
+  const submitInitiative = useCallback((event) => {
+    event.preventDefault();
+    const required = [form.name, form.summary, form.owner, form.dept, form.type, form.status, form.objective, form.aiLevel, form.cluster, form.riskTier, form.sensitivity];
+    if (required.some((value) => !String(value || "").trim())) {
+      setStatus({ type: "error", message: "Complete all required fields before adding the initiative." });
+      return;
+    }
+
+    const initiative = sanitize({
+      name: form.name.trim(),
+      summary: form.summary.trim(),
+      owner: form.owner.trim(),
+      dept: form.dept,
+      type: form.type,
+      status: form.status,
+      objective: form.objective.trim(),
+      aiLevel: form.aiLevel,
+      cluster: form.cluster,
+      riskTier: form.riskTier,
+      sensitivity: form.sensitivity,
+      blocker: form.blocker || null,
+      pattern: form.pattern || null,
+      capabilities: form.capabilities,
+      tools: form.tools.split(",").map((tool) => tool.trim()).filter(Boolean),
+      targetSaaS: form.targetSaaS.trim() || null,
+      rationalization: form.rationalization || null,
+      scores: form.scores,
+      inputs: []
+    });
+
+    const newId = onAddInitiative(initiative);
+    setForm(emptyInitiativeForm);
+    setStatus({ type: "success", message: `Initiative added to this session as ID ${newId}. Portfolio views now include it.` });
+  }, [form, onAddInitiative]);
+
+  return (
+    <section className="portfolio-view intake-view">
+      <form className="overview-section intake-form" onSubmit={submitInitiative}>
+        <div className="section-heading">
+          <div><p className="eyebrow">Session Intake</p><h2>Add Initiative</h2></div>
+          <p>New initiatives update this prototype immediately and reset on refresh.</p>
+        </div>
+
+        {status.message ? <div className={`form-message form-message-${status.type}`}>{status.message}</div> : null}
+
+        <div className="intake-form-grid">
+          <label className="span-2"><span>Initiative name</span><input value={form.name} onChange={(event) => updateField("name", event.target.value)} required /></label>
+          <label className="span-2"><span>Summary</span><textarea value={form.summary} onChange={(event) => updateField("summary", event.target.value)} required /></label>
+          <label><span>Owner / Wielder</span><input value={form.owner} onChange={(event) => updateField("owner", event.target.value)} required /></label>
+          <SelectField label="Department" value={form.dept} options={formOptions.departments} onChange={(value) => updateField("dept", value)} />
+          <SelectField label="Type" value={form.type} options={formOptions.types} onChange={(value) => updateField("type", value)} />
+          <SelectField label="Status" value={form.status} options={formOptions.statuses} onChange={(value) => updateField("status", value)} />
+          <label className="span-2"><span>Purpose / Objective</span><textarea value={form.objective} onChange={(event) => updateField("objective", event.target.value)} required /></label>
+          <SelectField label="AI Level" value={form.aiLevel} options={formOptions.aiLevels} onChange={(value) => updateField("aiLevel", value)} />
+          <SelectField label="Cluster" value={form.cluster} options={formOptions.clusters} onChange={(value) => updateField("cluster", value)} />
+          <SelectField label="Risk Tier" value={form.riskTier} options={formOptions.riskTiers} onChange={(value) => updateField("riskTier", value)} />
+          <SelectField label="Data Sensitivity" value={form.sensitivity} options={formOptions.sensitivities} onChange={(value) => updateField("sensitivity", value)} />
+          <SelectField label="Primary Blocker optional" value={form.blocker} options={formOptions.blockers} allowBlank onChange={(value) => updateField("blocker", value)} />
+          <SelectField label="Reusable Pattern / Materia optional" value={form.pattern} options={formOptions.patterns} allowBlank onChange={(value) => updateField("pattern", value)} />
+          <label><span>Tools Used comma-separated</span><input value={form.tools} onChange={(event) => updateField("tools", event.target.value)} /></label>
+          <label><span>Target Software optional</span><input value={form.targetSaaS} onChange={(event) => updateField("targetSaaS", event.target.value)} placeholder="System ($120k/yr)" /></label>
+          <SelectField label="Rationalization Mode optional" value={form.rationalization} options={["Replace", "Reduce", "Augment", "Retain", "TBD"]} allowBlank onChange={(value) => updateField("rationalization", value)} />
+        </div>
+
+        <div className="capability-picker">
+          <span>Required Capabilities</span>
+          <div>
+            {formOptions.capabilities.map((capability) => (
+              <label key={capability}>
+                <input type="checkbox" checked={form.capabilities.includes(capability)} onChange={() => toggleCapability(capability)} />
+                {capability}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="score-input-grid">
+          {Object.entries(form.scores).map(([key, value]) => (
+            <label className="weight-slider" key={key}>
+              <span>{key}</span>
+              <strong>{value}</strong>
+              <input type="range" min="1" max="10" value={value} onChange={(event) => updateScore(key, event.target.value)} />
+            </label>
+          ))}
+        </div>
+
+        <button type="submit" className="primary-action">Add initiative</button>
+      </form>
+    </section>
+  );
+}
+
+function AddInputView({ initiatives, onAddInput }) {
+  const [form, setForm] = useState(emptyInputForm);
+  const [status, setStatus] = useState({ type: "", message: "" });
+
+  const filteredInitiatives = useMemo(() => {
+    const query = form.search.trim().toLowerCase();
+    if (!query) return initiatives.slice(0, 12);
+    return initiatives.filter((init) => [init.name, init.dept, init.cluster, init.owner].join(" ").toLowerCase().includes(query)).slice(0, 20);
+  }, [form.search, initiatives]);
+
+  const selectedInitiative = useMemo(() => initiatives.find((init) => String(init.id) === String(form.initiativeId)) || null, [form.initiativeId, initiatives]);
+
+  const updateField = useCallback((key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setStatus({ type: "", message: "" });
+  }, []);
+
+  const selectInitiative = useCallback((initiative) => {
+    setForm((current) => ({ ...current, initiativeId: String(initiative.id), search: initiative.name }));
+    setStatus({ type: "", message: "" });
+  }, []);
+
+  const submitInput = useCallback((event) => {
+    event.preventDefault();
+    if (!selectedInitiative) {
+      setStatus({ type: "error", message: "Select an initiative before adding input." });
+      return;
+    }
+    if (![form.source, form.date, form.text].every((value) => String(value || "").trim())) {
+      setStatus({ type: "error", message: "Source, date, and text are required." });
+      return;
+    }
+
+    onAddInput(selectedInitiative.id, sanitize({
+      type: form.type,
+      source: form.source.trim(),
+      date: form.date.trim(),
+      text: form.text.trim()
+    }));
+    setForm({ ...emptyInputForm, type: form.type });
+    setStatus({ type: "success", message: `Input added to ${selectedInitiative.name}. Latest signals and intelligence counts now include it.` });
+  }, [form.date, form.source, form.text, form.type, onAddInput, selectedInitiative]);
+
+  return (
+    <section className="portfolio-view intake-view">
+      <form className="overview-section intake-form" onSubmit={submitInput}>
+        <div className="section-heading">
+          <div><p className="eyebrow">Signal Intake</p><h2>Add Input</h2></div>
+          <p>Attach raw evidence to an initiative for this session only.</p>
+        </div>
+
+        {status.message ? <div className={`form-message form-message-${status.type}`}>{status.message}</div> : null}
+
+        <div className="initiative-selector">
+          <label className="search-field">
+            <span>Searchable initiative selector</span>
+            <input value={form.search} onChange={(event) => updateField("search", event.target.value)} placeholder="Search name, department, cluster, owner..." />
+          </label>
+          <div className="selector-results">
+            {filteredInitiatives.map((init) => (
+              <button type="button" className={String(init.id) === String(form.initiativeId) ? "selected" : ""} key={init.id} onClick={() => selectInitiative(init)}>
+                <strong>{init.name}</strong>
+                <span>{init.dept} · {init.cluster} · {init.owner}</span>
+              </button>
+            ))}
+          </div>
+          {selectedInitiative ? <div className="selected-initiative"><span>Selected initiative</span><strong>{selectedInitiative.name}</strong></div> : null}
+        </div>
+
+        <div className="intake-form-grid">
+          <SelectField label="Input type" value={form.type} options={inputTypes} onChange={(value) => updateField("type", value)} />
+          <label><span>Source</span><input value={form.source} onChange={(event) => updateField("source", event.target.value)} required /></label>
+          <label><span>Date</span><input value={form.date} onChange={(event) => updateField("date", event.target.value)} placeholder="Apr 18" required /></label>
+          <label className="span-2"><span>Text</span><textarea value={form.text} onChange={(event) => updateField("text", event.target.value)} required /></label>
+        </div>
+
+        <button type="submit" className="primary-action">Add input</button>
+      </form>
+    </section>
+  );
+}
+
+function SelectField({ label, value, options, onChange, allowBlank = false }) {
+  return (
+    <label>
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {allowBlank ? <option value="">None</option> : null}
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
+}
 function PlaceholderView({ activeView, initiatives, wielders, pendingFilters }) {
   const copy = viewCopy[activeView];
   const blockedCount = initiatives.filter((init) => init.status === "Blocked").length;
@@ -1320,10 +1600,11 @@ function App() {
   const [activeView, setActiveView] = useState("Overview");
   const [weights, setWeights] = useState(WEIGHT_DEFAULTS);
   const [pendingFilters, setPendingFilters] = useState({});
+  const [rawInitiatives, setRawInitiatives] = useState(() => sanitize(INITIAL_INITIATIVES));
 
   const initiatives = useMemo(() => {
-    return sanitize(INITIAL_INITIATIVES).map((init) => enrichInitiative(init, weights));
-  }, [weights]);
+    return sanitize(rawInitiatives).map((init) => enrichInitiative(init, weights));
+  }, [rawInitiatives, weights]);
 
   const wielders = useMemo(() => buildWielders(initiatives), [initiatives]);
 
@@ -1334,6 +1615,19 @@ function App() {
   const handleNavigateWithFilters = useCallback((filters) => {
     setPendingFilters(filters);
     setActiveView("Initiatives");
+  }, []);
+
+  const handleAddInitiative = useCallback((initiative) => {
+    const newId = Math.max(0, ...rawInitiatives.map((init) => Number(init.id) || 0)) + 1;
+    setRawInitiatives((current) => [...current, sanitize({ ...initiative, id: newId, inputs: [] })]);
+    return newId;
+  }, [rawInitiatives]);
+
+  const handleAddInput = useCallback((initiativeId, input) => {
+    setRawInitiatives((current) => current.map((init) => {
+      if (String(init.id) !== String(initiativeId)) return init;
+      return { ...init, inputs: [...(init.inputs || []), sanitize(input)] };
+    }));
   }, []);
 
   const header = useMemo(() => {
@@ -1360,6 +1654,10 @@ function App() {
         <IntelligenceView initiatives={initiatives} />
       ) : activeView === "Roadmap" ? (
         <RoadmapView initiativeCount={initiatives.length} />
+      ) : activeView === "Add Initiative" ? (
+        <AddInitiativeView initiatives={initiatives} onAddInitiative={handleAddInitiative} />
+      ) : activeView === "Add Input" ? (
+        <AddInputView initiatives={initiatives} onAddInput={handleAddInput} />
       ) : (
         <PlaceholderView activeView={activeView} initiatives={initiatives} wielders={wielders} pendingFilters={pendingFilters} />
       )}
