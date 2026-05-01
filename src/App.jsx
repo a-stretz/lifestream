@@ -801,6 +801,264 @@ function RelatedList({ title, items }) {
     </div>
   );
 }
+
+function PrioritizationView({ initiatives, weights, onWeightsChange }) {
+  const [selectedId, setSelectedId] = useState(null);
+
+  const rankedInitiatives = useMemo(() => [...initiatives].sort((a, b) => Number(b.priorityScore) - Number(a.priorityScore)), [initiatives]);
+
+  const tierSummary = useMemo(() => {
+    const tiers = ["P0", "P1", "P2"].map((tier) => {
+      const items = initiatives.filter((init) => init.priorityTier === tier);
+      const blocked = items.filter((init) => init.status === "Blocked").length;
+      const spend = items.reduce((sum, init) => sum + parseAnnualCost(init.targetSaaS), 0);
+      return { tier, count: items.length, blocked, spend };
+    });
+    return tiers;
+  }, [initiatives]);
+
+  const comparisonRows = useMemo(() => rankedInitiatives.slice(0, 5).map((init) => ({
+    id: init.id,
+    name: init.name,
+    impact: init.scores.impact,
+    effort: init.scores.effort,
+    lowRisk: 10 - init.scores.risk,
+    alignment: init.scores.alignment,
+    finalScore: init.priorityScore
+  })), [rankedInitiatives]);
+
+  const selectedInitiative = useMemo(() => initiatives.find((init) => init.id === selectedId) || null, [initiatives, selectedId]);
+
+  const handleWeightChange = useCallback((key, value) => {
+    onWeightsChange((current) => ({ ...current, [key]: Number(value) }));
+  }, [onWeightsChange]);
+
+  const openInitiative = useCallback((id) => setSelectedId(id), []);
+  const closeDrawer = useCallback(() => setSelectedId(null), []);
+
+  return (
+    <section className="portfolio-view">
+      <div className="overview-section">
+        <div className="section-heading compact">
+          <div>
+            <p className="eyebrow">Scoring Weights</p>
+            <h2>Model strategic tradeoffs</h2>
+          </div>
+        </div>
+        <div className="weight-grid">
+          {Object.entries(weights).map(([key, value]) => (
+            <label className="weight-slider" key={key}>
+              <span>{key}</span>
+              <strong>{value}</strong>
+              <input type="range" min="0" max="100" value={value} onChange={(event) => handleWeightChange(key, event.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <section className="overview-grid two-column">
+        <article className="overview-section">
+          <div className="section-heading compact"><div><p className="eyebrow">Tier Summary</p><h2>Priority distribution</h2></div></div>
+          <div className="tier-summary-grid">
+            {tierSummary.map((tier) => (
+              <div className="tier-card" key={tier.tier}>
+                <span>{tier.tier}</span>
+                <strong>{tier.count}</strong>
+                <small>{tier.blocked} blocked · {formatCurrency(tier.spend)} target spend</small>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="overview-section">
+          <div className="section-heading compact"><div><p className="eyebrow">Top 5 Comparison Matrix</p><h2>Score comparison</h2></div></div>
+          <div className="comparison-table">
+            <div className="comparison-head"><span>Initiative</span><span>Impact</span><span>Effort</span><span>Low Risk</span><span>Alignment</span><span>Final</span></div>
+            {comparisonRows.map((row) => (
+              <div className="comparison-row" key={row.id}>
+                <strong>{row.name}</strong>
+                {[row.impact, row.effort, row.lowRisk, row.alignment].map((score, index) => <ScoreCell score={score} key={index} />)}
+                <span>{row.finalScore}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="overview-section">
+        <div className="section-heading compact"><div><p className="eyebrow">Stack Rank</p><h2>All initiatives by weighted score</h2></div></div>
+        <div className="ranked-list">
+          {rankedInitiatives.map((init, index) => (
+            <button className="ranked-row" type="button" key={init.id} onClick={() => openInitiative(init.id)}>
+              <span className="rank">{index + 1}</span>
+              <span className="ranked-main"><strong>{init.name}</strong><small>{init.cluster} · {init.owner} · {init.status}</small></span>
+              <Badge tone="risk">Risk: {init.riskTier}</Badge>
+              {init.blocker ? <Badge tone="blocker">Blocker: {init.blocker}</Badge> : <span />}
+              <span className="score-pill">{init.priorityTier} · {init.priorityScore}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {selectedInitiative ? <InitiativeDrawer initiative={selectedInitiative} initiatives={initiatives} onClose={closeDrawer} /> : null}
+    </section>
+  );
+}
+
+function ScoreCell({ score }) {
+  return <span className="score-cell"><i style={{ width: `${score * 10}%` }} />{score}</span>;
+}
+
+function SoftwareRationalizationView({ initiatives }) {
+  const [selectedId, setSelectedId] = useState(null);
+
+  const rationalizationInitiatives = useMemo(() => initiatives.filter((init) => init.targetSaaS), [initiatives]);
+
+  const softwareCostCalculations = useMemo(() => {
+    const rows = rationalizationInitiatives.map((init) => ({ ...init, annualCost: parseAnnualCost(init.targetSaaS) }));
+    const total = rows.reduce((sum, init) => sum + init.annualCost, 0);
+    const addressable = rows.filter((init) => ["Replace", "Reduce"].includes(init.rationalization)).reduce((sum, init) => sum + init.annualCost, 0);
+    const counts = countBy(rows, (init) => init.rationalization || "TBD");
+    const blocked = rows.filter((init) => init.status === "Blocked").length;
+    const topTargets = [...rows].sort((a, b) => b.annualCost - a.annualCost).slice(0, 4);
+    const modes = ["Replace", "Reduce", "Augment", "Retain", "TBD"].map((mode) => ({ mode, count: counts.get(mode) || 0 })).filter((item) => item.count);
+    return { rows, total, addressable, counts, blocked, topTargets, modes };
+  }, [rationalizationInitiatives]);
+
+  const selectedInitiative = useMemo(() => initiatives.find((init) => init.id === selectedId) || null, [initiatives, selectedId]);
+  const openInitiative = useCallback((id) => setSelectedId(id), []);
+  const closeDrawer = useCallback(() => setSelectedId(null), []);
+
+  return (
+    <section className="portfolio-view">
+      <div className="overview-section">
+        <div className="section-heading">
+          <div><p className="eyebrow">Software Rationalization Snapshot</p><h2>Focused cost displacement subsection</h2></div>
+          <p>Initiatives here have explicit software cost displacement targets. Rationalization is optional metadata, not the reason every initiative exists.</p>
+        </div>
+        <div className="snapshot-metrics rationalization-summary">
+          <div><span>Total annual target</span><strong>{formatCurrency(softwareCostCalculations.total)}</strong></div>
+          <div><span>Addressable annual target</span><strong>{formatCurrency(softwareCostCalculations.addressable)}</strong></div>
+          <div><span>Target systems</span><strong>{softwareCostCalculations.rows.length}</strong></div>
+          <div><span>Replace</span><strong>{softwareCostCalculations.counts.get("Replace") || 0}</strong></div>
+          <div><span>Reduce</span><strong>{softwareCostCalculations.counts.get("Reduce") || 0}</strong></div>
+          <div><span>Augment</span><strong>{softwareCostCalculations.counts.get("Augment") || 0}</strong></div>
+          <div><span>Blocked</span><strong>{softwareCostCalculations.blocked}</strong></div>
+        </div>
+      </div>
+
+      <section className="overview-grid two-column">
+        <article className="overview-section">
+          <div className="section-heading compact"><div><p className="eyebrow">Mode Breakdown</p><h2>Rationalization modes</h2></div></div>
+          <div className="mode-breakdown">
+            {softwareCostCalculations.modes.map((item) => <div key={item.mode}><span>{item.mode}</span><strong>{item.count}</strong><i style={{ width: `${(item.count / softwareCostCalculations.rows.length) * 100}%` }} /></div>)}
+            <div><span>Blocked</span><strong>{softwareCostCalculations.blocked}</strong><i style={{ width: `${(softwareCostCalculations.blocked / softwareCostCalculations.rows.length) * 100}%` }} /></div>
+          </div>
+        </article>
+        <article className="overview-section">
+          <div className="section-heading compact"><div><p className="eyebrow">Top Targets</p><h2>Highest estimated annual costs</h2></div></div>
+          <div className="mini-list">
+            {softwareCostCalculations.topTargets.map((init) => <button type="button" key={init.id} onClick={() => openInitiative(init.id)}><span>{init.targetSaaS}</span><strong>{init.annualCost ? formatCurrency(init.annualCost) : "Partial"}</strong></button>)}
+          </div>
+        </article>
+      </section>
+
+      <section className="overview-section">
+        <div className="section-heading compact"><div><p className="eyebrow">Target Table</p><h2>Initiatives with explicit software targets</h2></div></div>
+        <div className="software-table">
+          <div className="software-head"><span>Initiative</span><span>Target System</span><span>Annual Cost</span><span>Mode</span><span>Status</span><span>Owner / Wielder</span><span>Cluster</span><span>Risk</span><span>Blocker</span></div>
+          {softwareCostCalculations.rows.map((init) => (
+            <button type="button" className="software-row" key={init.id} onClick={() => openInitiative(init.id)}>
+              <strong>{init.name}</strong><span>{init.targetSaaS}</span><span>{init.annualCost ? formatCurrency(init.annualCost) : "Partial"}</span><span>{init.rationalization || "TBD"}</span><span>{init.status}</span><span>{init.owner}</span><span>{init.cluster}</span><span>{init.riskTier}</span><span>{init.blocker || "None"}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {selectedInitiative ? <InitiativeDrawer initiative={selectedInitiative} initiatives={initiatives} onClose={closeDrawer} /> : null}
+    </section>
+  );
+}
+
+const baseRoadmapItems = [
+  { title: "Working static prototype", horizon: "Horizon 1", type: "Prototype", description: "Browser-deployable portfolio visibility using static data.", priority: "High" },
+  { title: "Initiative registry", horizon: "Horizon 1", type: "Registry", description: "Structured initiative metadata and source context.", priority: "High" },
+  { title: "Manual initiative intake", horizon: "Horizon 1", type: "Intake", description: "Session-only form path for new initiatives.", priority: "Medium" },
+  { title: "Manual raw input intake", horizon: "Horizon 1", type: "Intake", description: "Attach source signals to known initiatives.", priority: "Medium" },
+  { title: "Executive overview", horizon: "Horizon 1", type: "Dashboard", description: "Attention, movement, priority, and pattern signals.", priority: "High" },
+  { title: "Initiative explorer", horizon: "Horizon 1", type: "Explorer", description: "Search, filter, inspect, and compare initiatives.", priority: "High" },
+  { title: "Priority scoring", horizon: "Horizon 1", type: "Scoring", description: "Weighted score modeling for strategic tradeoffs.", priority: "High" },
+  { title: "Software rationalization view", horizon: "Horizon 1", type: "Finance", description: "Focused view of explicit cost displacement targets.", priority: "Medium" },
+  { title: "Import from spreadsheets", horizon: "Horizon 2", type: "Ingestion", description: "Controlled bulk import from structured files.", priority: "High" },
+  { title: "Import from meeting notes", horizon: "Horizon 2", type: "Ingestion", description: "Turn notes into reviewed initiative updates.", priority: "Medium" },
+  { title: "Import from project updates", horizon: "Horizon 2", type: "Ingestion", description: "Normalize updates from existing operating cadences.", priority: "Medium" },
+  { title: "Import from chat exports", horizon: "Horizon 2", type: "Ingestion", description: "Review source channel exports before registry updates.", priority: "Medium" },
+  { title: "Source attribution and confidence", horizon: "Horizon 2", type: "Governance", description: "Preserve provenance and confidence for every extracted signal.", priority: "High" },
+  { title: "Human review before registry update", horizon: "Horizon 2", type: "Governance", description: "Keep people in the loop for system-generated changes.", priority: "High" },
+  { title: "Suggested initiative creation", horizon: "Horizon 3", type: "Discovery", description: "Recommend new initiative records from repeated signals.", priority: "High" },
+  { title: "Suggested Materia detection", horizon: "Horizon 3", type: "Pattern", description: "Identify reusable workflow and capability patterns.", priority: "High" },
+  { title: "Similar initiative matching", horizon: "Horizon 3", type: "Pattern", description: "Connect related efforts across departments.", priority: "High" },
+  { title: "Dynamic pattern recognition", horizon: "Horizon 3", type: "Intelligence", description: "Detect blockers, risks, and reusable patterns as they emerge.", priority: "Medium" },
+  { title: "Governance risk flagging", horizon: "Horizon 3", type: "Governance", description: "Route sensitive or regulated work for review.", priority: "High" },
+  { title: "Contributor and ownership mapping", horizon: "Horizon 3", type: "Operating Model", description: "Show participation and ownership coverage.", priority: "Medium" },
+  { title: "Production storage and audit trail", horizon: "Horizon 3", type: "Platform", description: "Persist validated portfolio data with change history.", priority: "High" }
+];
+
+const horizonMeta = {
+  "Horizon 1": { title: "Prototype and Registry", purpose: "Demonstrate visibility, structured initiative data, manual intake, and portfolio intelligence." },
+  "Horizon 2": { title: "Structured Ingestion", purpose: "Move from manual entry to controlled ingestion from source systems." },
+  "Horizon 3": { title: "Assisted Discovery and Pattern Intelligence", purpose: "Use AI to identify emerging initiatives, reusable Materia, patterns, blockers, and governance risks." }
+};
+
+function RoadmapView({ initiativeCount }) {
+  const [items, setItems] = useState(baseRoadmapItems);
+  const [form, setForm] = useState({ title: "", horizon: "Horizon 1", type: "", description: "", priority: "Medium" });
+
+  const roadmapGroupedItems = useMemo(() => ["Horizon 1", "Horizon 2", "Horizon 3"].map((horizon) => ({ horizon, ...horizonMeta[horizon], items: items.filter((item) => item.horizon === horizon) })), [items]);
+
+  const updateForm = useCallback((key, value) => setForm((current) => ({ ...current, [key]: value })), []);
+  const submitRoadmapItem = useCallback((event) => {
+    event.preventDefault();
+    if (!form.title.trim()) return;
+    setItems((current) => [...current, { ...form, title: form.title.trim() }]);
+    setForm({ title: "", horizon: "Horizon 1", type: "", description: "", priority: "Medium" });
+  }, [form]);
+
+  return (
+    <section className="portfolio-view">
+      <div className="overview-section current-state-callout">
+        <p className="eyebrow">Current State</p>
+        <h2>{initiativeCount} initiatives across multiple departments</h2>
+        <p>Fragmented channels, no shared registry, and no production ingestion yet. This prototype shows the operating model before persistent storage and automated ingestion exist.</p>
+      </div>
+
+      <div className="roadmap-grid">
+        {roadmapGroupedItems.map((group) => (
+          <article className="overview-section roadmap-column" key={group.horizon}>
+            <p className="eyebrow">{group.horizon}</p>
+            <h2>{group.title}</h2>
+            <p>{group.purpose}</p>
+            <div className="roadmap-item-list">
+              {group.items.map((item, index) => <div className="roadmap-item" key={`${item.title}-${index}`}><strong>{item.title}</strong><span>{item.type} · {item.priority}</span><p>{item.description}</p></div>)}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <form className="overview-section roadmap-form" onSubmit={submitRoadmapItem}>
+        <div className="section-heading"><div><p className="eyebrow">Add Roadmap Item</p><h2>Session-only planning</h2></div><p>Roadmap additions are session-only in this prototype. Persistent roadmap storage would require a backend or database in production.</p></div>
+        <div className="roadmap-form-grid">
+          <label><span>Title</span><input value={form.title} onChange={(event) => updateForm("title", event.target.value)} /></label>
+          <label><span>Horizon</span><select value={form.horizon} onChange={(event) => updateForm("horizon", event.target.value)}><option>Horizon 1</option><option>Horizon 2</option><option>Horizon 3</option></select></label>
+          <label><span>Type</span><input value={form.type} onChange={(event) => updateForm("type", event.target.value)} /></label>
+          <label><span>Priority</span><select value={form.priority} onChange={(event) => updateForm("priority", event.target.value)}><option>High</option><option>Medium</option><option>Low</option></select></label>
+          <label className="roadmap-description"><span>Description</span><textarea value={form.description} onChange={(event) => updateForm("description", event.target.value)} /></label>
+        </div>
+        <button type="submit" className="primary-action">Add item</button>
+      </form>
+    </section>
+  );
+}
 function PlaceholderView({ activeView, initiatives, wielders, pendingFilters }) {
   const copy = viewCopy[activeView];
   const blockedCount = initiatives.filter((init) => init.status === "Blocked").length;
@@ -879,7 +1137,7 @@ function PlaceholderView({ activeView, initiatives, wielders, pendingFilters }) 
 
 function App() {
   const [activeView, setActiveView] = useState("Overview");
-  const [weights] = useState(WEIGHT_DEFAULTS);
+  const [weights, setWeights] = useState(WEIGHT_DEFAULTS);
   const [pendingFilters, setPendingFilters] = useState({});
 
   const initiatives = useMemo(() => {
@@ -913,6 +1171,12 @@ function App() {
         <ExecutiveOverview initiatives={initiatives} wielders={wielders} onNavigateWithFilters={handleNavigateWithFilters} />
       ) : activeView === "Initiatives" ? (
         <InitiativeExplorer initiatives={initiatives} pendingFilters={pendingFilters} />
+      ) : activeView === "Prioritize" ? (
+        <PrioritizationView initiatives={initiatives} weights={weights} onWeightsChange={setWeights} />
+      ) : activeView === "Software Rationalization" ? (
+        <SoftwareRationalizationView initiatives={initiatives} />
+      ) : activeView === "Roadmap" ? (
+        <RoadmapView initiativeCount={initiatives.length} />
       ) : (
         <PlaceholderView activeView={activeView} initiatives={initiatives} wielders={wielders} pendingFilters={pendingFilters} />
       )}
@@ -921,6 +1185,8 @@ function App() {
 }
 
 export default App;
+
+
 
 
 
