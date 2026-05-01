@@ -22,8 +22,9 @@
   --purple: #a78bfa;
   --rose: #f472b6;
 
-  --gradient-lifestream-full: linear-gradient(135deg, #00E5FF 0%, #7B2CFF 48%, #FF3CAF 72%, #FFA000 100%);
-  --gradient-lifestream-refined: linear-gradient(135deg, rgba(0,229,255,0.20), rgba(123,44,255,0.18), rgba(255,60,175,0.12));
+  --gradient-flow-full: linear-gradient(135deg, #00E5FF 0%, #7B2CFF 48%, #FF3CAF 72%, #FFA000 100%);
+  --gradient-flow-refined: linear-gradient(135deg, rgba(0,229,255,0.20), rgba(123,44,255,0.18), rgba(255,60,175,0.12));
   --shadow-soft: 0 24px 80px rgba(0, 0, 0, 0.28);
   --sidebar-width: 292px;
 }
+

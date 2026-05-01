@@ -13,10 +13,10 @@ export function Sidebar({ activeView, onNavigate }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
       <div className="brand-lockup">
-        <img src="/assets/Lifestream-white-icon.png" alt="" className="brand-mark" />
+        <span className="brand-orb" aria-hidden="true" />
         <div>
           <p className="brand-name">Lifestream</p>
-          <p className="brand-kicker">Initiative intelligence</p>
+          <p className="brand-kicker">Initiative Intelligence</p>
         </div>
       </div>
 
@@ -33,11 +33,8 @@ export function Sidebar({ activeView, onNavigate }) {
           </button>
         ))}
       </nav>
-
-      <div className="sidebar-footer">
-        <img src="/assets/Lifestream-full.png" alt="Lifestream" className="footer-logo" />
-        <p>Lifestream captures distributed signals and turns them into reusable operating context.</p>
-      </div>
     </aside>
   );
 }
+
+
