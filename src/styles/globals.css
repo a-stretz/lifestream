@@ -786,3 +786,147 @@ h1 {
 }
 
 
+
+.pipeline-summary {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.attention-layout {
+  align-items: start;
+}
+
+.cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cluster-card {
+  position: relative;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: left;
+}
+
+.cluster-card:hover,
+.capability-row:hover {
+  background: var(--surface-hover);
+}
+
+.cluster-card span {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cluster-card strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.cluster-card i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--stream-blue);
+  opacity: 0.75;
+}
+
+.cluster-card.high {
+  border-color: rgba(0, 229, 255, 0.32);
+}
+
+.cluster-card.low {
+  border-color: rgba(255, 160, 0, 0.24);
+}
+
+.issue-high-risk,
+.issue-sensitive-data {
+  border-left-color: var(--red);
+}
+
+.issue-no-builder,
+.issue-concentration-risk {
+  border-left-color: var(--amber);
+}
+
+.issue-blocked,
+.issue-active-blocker {
+  border-left-color: var(--energy-orange);
+}
+
+.rationalization-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.capability-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.capability-row {
+  position: relative;
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 13px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: left;
+}
+
+.capability-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capability-row i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--cosmic-purple);
+  opacity: 0.82;
+}
+
+.capability-row.high-density {
+  border-color: rgba(123, 44, 255, 0.36);
+}
+
+.signal-source {
+  color: var(--text) !important;
+  font-weight: 600;
+}
+
+@media (max-width: 1180px) {
+  .rationalization-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .cluster-grid,
+  .rationalization-metrics {
+    grid-template-columns: 1fr;
+  }
+}
